@@ -34,7 +34,7 @@ python3 visualize.py
 ```
 
 ## Result
-![Test Image 1]("78_npy_monodepth2.png")
+![Test Image 1](/78_npy_monodepth2.png)
 
 ## Authors
 
