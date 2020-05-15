@@ -1,0 +1,138 @@
+import argparse
+import os
+
+import numpy as np
+import scipy.misc as ssc
+
+import kitti_util
+
+import imageio
+
+
+def project_disp_to_points(calib, disp, max_high):
+    #print("disp 1 = ", disp.shape)
+    disp = disp[0][0]
+    #print("disp 1 = ", disp.shape)
+    disp[disp < 0] = 0
+    baseline = 100  # 0.54
+    mask = disp > 0
+    depth = calib.f_u * baseline / (disp + 1. - mask)
+    #print("disp 2 = ", disp.shape)
+    rows, cols = depth.shape
+    c, r = np.meshgrid(np.arange(cols), np.arange(rows))
+    points = np.stack([c, r, depth])
+    points = points.reshape((3, -1))
+    points = points.T
+    points = points[mask.reshape(-1)]
+    cloud = calib.project_image_to_velo(points)
+    valid = (cloud[:, 0] >= 0) & (cloud[:, 2] < max_high)
+    return cloud[valid]
+
+# Edited
+def project_depth_to_points(calib, depth, max_high):
+    # print("depth = ", depth[29].shape)
+    # print("len = ", len(depth))
+    rows, cols = depth.shape[:-1]
+
+    print("rows = ", rows)
+    print("cols = ", cols)
+
+    c, r = np.meshgrid(np.arange(cols), np.arange(rows))
+
+    print("r = ", r.shape)
+    print("c = ", c.shape)
+    print("anu = ", depth[:-1].shape)
+
+    points = np.stack([c, r, depth])
+    points = points.reshape((3, -1))
+    points = points.T
+    cloud = calib.project_image_to_velo(points)
+    valid = (cloud[:, 0] >= 0) & (cloud[:, 2] < max_high)
+    return cloud[valid]
+
+def project_depth_to_points2(calib, depth, max_high):
+    print("depth = ", depth[29].shape)
+    print("len = ", len(depth))
+    rows, cols = depth[0].shape
+    c, r = np.meshgrid(np.arange(cols), np.arange(rows))
+    points = np.stack([c, r, depth[0]])
+    points = points.reshape((3, -1))
+    points = points.T
+    cloud = calib.project_image_to_velo(points)
+    valid = (cloud[:, 0] >= 0) & (cloud[:, 2] < max_high)
+    return cloud[valid]
+
+def project_depth_to_points_ori(calib, depth, max_high):
+    rows, cols = depth.shape
+    c, r = np.meshgrid(np.arange(cols), np.arange(rows))
+    points = np.stack([c, r, depth])
+    points = points.reshape((3, -1))
+    points = points.T
+    cloud = calib.project_image_to_velo(points)
+    valid = (cloud[:, 0] >= 0) & (cloud[:, 2] < max_high)
+    return cloud[valid]
+
+def project_depth_to_points_ori2(calib, depth, max_high):
+    rows, cols, _ = depth.shape
+    c, r, = np.meshgrid(np.arange(cols), np.arange(rows))
+    points = np.stack([c, r, depth])
+    points = points.reshape((3, -1))
+    points = points.T
+    cloud = calib.project_image_to_velo(points)
+    valid = (cloud[:, 0] >= 0) & (cloud[:, 2] < max_high)
+    return cloud[valid]
+
+if __name__ == '__main__':
+    # parser = argparse.ArgumentParser(description='Generate Libar')
+    # parser.add_argument('--calib_dir', type=str,
+    #                     default='~/Kitti/object/training/calib')
+    # parser.add_argument('--disparity_dir', type=str,
+    #                     default='~/Kitti/object/training/predicted_disparity')
+    # parser.add_argument('--save_dir', type=str,
+    #                     default='~/Kitti/object/training/predicted_velodyne')
+    # parser.add_argument('--max_high', type=int, default=1)
+    # parser.add_argument('--is_depth', action='store_true')
+
+    parser = argparse.ArgumentParser(description='Generate Libar')
+    parser.add_argument('--calib_dir', type=str,
+                        default='~/Kitti/object/training/calib_est')
+    parser.add_argument('--disparity_dir', type=str,
+                        default='~/Kitti/object/training/predicted_disparity')
+    parser.add_argument('--save_dir', type=str,
+                        default='~/Kitti/object/training/predicted_velodyne')
+    parser.add_argument('--max_high', type=int, default=1)
+    parser.add_argument('--is_depth', action='store_true')
+
+    args = parser.parse_args()
+
+    assert os.path.isdir(args.disparity_dir)
+    assert os.path.isdir(args.calib_dir)
+
+    if not os.path.isdir(args.save_dir):
+        os.makedirs(args.save_dir)
+
+    disps = [x for x in os.listdir(args.disparity_dir) if x[-3:] == 'png' or x[-3:] == 'npy']
+    disps = sorted(disps)
+
+    for fn in disps:
+        predix = fn[:-4]
+        calib_file = '{}/{}.txt'.format(args.calib_dir, predix)
+        calib = kitti_util.Calibration(calib_file)
+        # disp_map = ssc.imread(args.disparity_dir + '/' + fn) / 256.
+        if fn[-3:] == 'png':
+            disp_map = imageio.imread(args.disparity_dir + '/' + fn, as_gray=True)  # disp_map = imageio.imread(args.disparity_dir + '/' + fn, as_gray=True)
+        elif fn[-3:] == 'npy':
+            disp_map = np.load(args.disparity_dir + '/' + fn)
+        else:
+            assert False
+        if not args.is_depth:
+            disp_map = (disp_map*256).astype(np.uint16)/256.
+            lidar = project_disp_to_points(calib, disp_map, args.max_high)
+        else:
+            disp_map = (disp_map).astype(np.float32)/256.
+            lidar = project_depth_to_points_ori(calib, disp_map, args.max_high)
+        # pad 1 in the indensity dimension
+        lidar = np.concatenate([lidar, np.ones((lidar.shape[0], 1))], 1)
+        lidar = lidar.astype(np.float32)
+        lidar.tofile('{}/{}.bin'.format(args.save_dir, predix))
+        print('Finish Depth {}'.format(predix))
